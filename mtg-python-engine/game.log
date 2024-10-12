@@ -1,0 +1,10 @@
+2024-10-08 08:13:28,395 - game_logger - ERROR - Card data file not found at C:\Users\swank\mtg-python-engine\data\cards.json
+2024-10-08 08:13:28,396 - game_logger - ERROR - Insufficient cards available to start the game.
+2024-10-08 08:13:58,487 - game_logger - ERROR - Card data file not found at C:\Users\swank\mtg-python-engine\data\cards.json
+2024-10-08 08:13:58,489 - game_logger - ERROR - Insufficient cards available to start the game.
+2024-10-08 11:00:50,846 - game_logger - ERROR - Card data file not found at C:\Users\swank\mtg-python-engine\data\cards.json
+2024-10-08 11:00:50,846 - game_logger - ERROR - Insufficient cards available to start the game.
+2024-10-11 19:32:52,860 - game_logger - ERROR - Card data file not found at C:\Users\swank\Downloads\MtG Database.json
+2024-10-11 19:32:52,861 - game_logger - ERROR - Insufficient cards available to start the game.
+2024-10-11 21:48:37,200 - game_logger - ERROR - Card data file not found at C:\Users\swank\Downloads\MtG Database.json
+2024-10-11 21:48:37,216 - game_logger - ERROR - Insufficient cards available to start the game.

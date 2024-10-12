@@ -1,0 +1,40 @@
+2024-10-07 23:51:32,833 - ERROR - JSON file not found: /home/plunder/data/scryfall/default_cards/default-cards-20241003211224.json
+2024-10-07 23:51:32,833 - ERROR - Insufficient cards available to start the game.
+2024-10-08 00:10:21,089 - ERROR - JSON file not found: /home/plunder/data/scryfall/default_cards/default-cards-20241003211224.json
+2024-10-08 00:10:21,091 - ERROR - Insufficient cards available to start the game.
+2024-10-08 07:51:08,823 - ERROR - JSON file not found: /home/plunder/data/scryfall/default_cards/default-cards-20241003211224.json
+2024-10-08 07:51:08,824 - ERROR - Insufficient cards available to start the game.
+2024-10-08 08:14:23,568 - ERROR - JSON file not found: /home/plunder/data/scryfall/default_cards/default-cards-20241003211224.json
+2024-10-08 08:14:23,588 - ERROR - Insufficient cards available to start the game.
+2024-10-08 09:00:15,690 - ERROR - JSON file not found: /home/plunder/data/scryfall/default_cards/default-cards-20241003211224.json
+2024-10-08 09:00:15,692 - ERROR - Insufficient cards available to start the game.
+2024-10-08 09:02:31,132 - ERROR - JSON file not found: /home/plunder/data/scryfall/default_cards/default-cards-20241003211224.json
+2024-10-08 09:02:31,134 - ERROR - Insufficient cards available to start the game.
+2024-10-08 11:02:23,038 - ERROR - No valid cards were loaded from the JSON file.
+2024-10-08 11:13:29,631 - ERROR - No valid cards were loaded from the JSON file.
+2024-10-08 11:14:55,993 - ERROR - No valid cards were loaded from the JSON file.
+2024-10-08 11:14:55,995 - ERROR - Insufficient cards available to start the game.
+2024-10-08 11:17:47,901 - ERROR - No valid cards were loaded from the JSON file.
+2024-10-08 11:17:47,902 - ERROR - Insufficient cards available to start the game.
+2024-10-08 11:20:59,096 - ERROR - No valid cards were loaded from the JSON file.
+2024-10-08 11:20:59,097 - ERROR - Insufficient cards available to start the game.
+2024-10-08 11:21:34,135 - ERROR - No valid cards were loaded from the JSON file.
+2024-10-08 11:21:34,137 - ERROR - Insufficient cards available to start the game.
+2024-10-08 11:30:49,921 - ERROR - No valid cards were loaded from the JSON file.
+2024-10-08 11:30:49,923 - ERROR - Insufficient cards available to start the game.
+2024-10-11 19:31:48,861 - ERROR - No valid cards were loaded from the JSON file.
+2024-10-11 19:31:48,862 - ERROR - Insufficient cards available to start the game.
+2024-10-11 19:33:14,405 - ERROR - No valid cards were loaded from the JSON file.
+2024-10-11 19:33:14,406 - ERROR - Insufficient cards available to start the game.
+2024-10-11 21:52:04,076 - ERROR - JSON file not found: C:/Users/swank/Downloads/MtG Database.json
+2024-10-11 21:52:04,123 - ERROR - Insufficient cards available to start the game.
+2024-10-11 21:52:31,363 - ERROR - Unexpected error loading cards: 'utf-8' codec can't decode byte 0xfb in position 31: invalid start byte
+2024-10-11 21:52:31,372 - ERROR - Insufficient cards available to start the game.
+2024-10-11 21:52:51,413 - ERROR - JSON file not found: C:/Users/swank/Downloads/MtG Database.json
+2024-10-11 21:52:51,413 - ERROR - Insufficient cards available to start the game.
+2024-10-11 21:56:36,064 - ERROR - JSON file not found: C:/Users/swank/Downloads/MtG Database.json
+2024-10-11 21:56:36,065 - ERROR - Insufficient cards available to start the game.
+2024-10-11 21:58:17,701 - ERROR - Unexpected error loading cards: 'utf-8' codec can't decode byte 0xfb in position 31: invalid start byte
+2024-10-11 21:58:17,711 - ERROR - Insufficient cards available to start the game.
+2024-10-11 22:11:40,097 - ERROR - Unexpected error loading cards: 'utf-8' codec can't decode byte 0xfb in position 31: invalid start byte
+2024-10-11 22:11:40,108 - ERROR - Insufficient cards available to start the game.
