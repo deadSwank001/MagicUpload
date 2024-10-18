@@ -1,0 +1,19 @@
+def train_q_network(self):
+    if len(self.experience_replay) < self.batch_size:
+        return
+batch = random.sample(self.experience_replay, self.batch_size)
+for state, action, reward, next_state in batch:
+    with torch.no_grad(): #disablesGradientCalculation
+        target = reward + self.gamma * torch.max(self.q_network(next_state))
+    predicted = self.q_network(state)[action]
+    loss = F.mse_loss(predicted,target)
+    self.optimizer.zero_grad()
+    loss.backward()
+    self.optimizer.step()
+
+def get_action(self, state):
+    if random.random() < self.exploration_rate:
+        return random.randint(0, self.q_network.fc3.out_features - 1) #Randomaction
+    else:
+        with torch.no_grad():
+            return torch.argmax(self.q_network(state)).item() #ActionwithmaxQ-value
