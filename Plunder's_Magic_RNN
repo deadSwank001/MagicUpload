@@ -1,1 +1,702 @@
+import os
+import json
+import random
+import logging
+import re
+from typing import List, Optional, Dict, Any
+from transitions import Machine
 
+# Configure logging
+def setup_logger(name: str, log_file: str, level=logging.INFO):
+    """
+    Sets up a logger with the specified name and log file.
+    """
+    logger = logging.getLogger(name)
+    logger.setLevel(level)
+
+    # Prevent adding multiple handlers to the logger
+    if not logger.handlers:
+        # Console handler
+        console_handler = logging.StreamHandler()
+        console_handler.setLevel(level)
+        console_formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
+        console_handler.setFormatter(console_formatter)
+        logger.addHandler(console_handler)
+
+        # File handler
+        file_handler = logging.FileHandler(log_file)
+        file_handler.setLevel(level)
+        file_formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
+        file_handler.setFormatter(file_formatter)
+        logger.addHandler(file_handler)
+
+    return logger
+
+logger = setup_logger('game_logger', 'game_log.log')
+
+# Data Models
+class Card:
+    """
+    Represents a card in the game.
+    """
+    def __init__(
+        self,
+        name: str,
+        card_type: str,
+        mana_cost: str,
+        power: Optional[str] = None,
+        toughness: Optional[str] = None,
+        colors: List[str] = [],
+        keywords: List[str] = [],
+        image_path: Optional[str] = None
+    ):
+        self.name = name
+        self.card_type = card_type  # e.g., 'Creature', 'Spell', 'Land'
+        self.mana_cost = mana_cost
+        self.power = power
+        self.toughness = toughness
+        self.colors = colors  # Colors of the card (e.g., ['W', 'U'])
+        self.keywords = keywords  # Special abilities (e.g., ['Flying', 'First Strike'])
+        self.image_path = image_path
+        self.tapped = False  # Track whether the card is tapped
+        self.owner: Optional['Player'] = None  # Set when the card is in play
+
+    def __str__(self) -> str:
+        pt = f"{self.power}/{self.toughness}" if self.power and self.toughness else ""
+        return f"{self.name} ({self.card_type}) - Cost: {self.mana_cost} {pt}"
+
+    @staticmethod
+    def from_json(card_data: Dict[str, Any], image_dir: str) -> 'Card':
+        """
+        Creates a Card instance from JSON data.
+        """
+        try:
+            name = card_data.get('name', 'Unknown')
+            card_type = card_data.get('type_line', 'Unknown')
+            mana_cost = card_data.get('mana_cost', '')
+            power = card_data.get('power')
+            toughness = card_data.get('toughness')
+            colors = card_data.get('colors', [])
+            keywords = card_data.get('keywords', [])
+            image_path = os.path.join(image_dir, f"{name}.jpg") if name else None
+            return Card(name, card_type, mana_cost, power, toughness, colors, keywords, image_path)
+        except Exception as e:
+            logger.error(f"Error creating Card from JSON: {e}")
+            raise
+
+    def calculate_mana_value(self) -> int:
+        """
+        Calculates the mana value (converted mana cost) of the card.
+        """
+        mana_symbols = re.findall(r'\{(.*?)\}', self.mana_cost)
+        mana_value = 0
+        for symbol in mana_symbols:
+            if symbol.isdigit():
+                mana_value += int(symbol)
+            else:
+                mana_value += 1  # Each non-numeric symbol adds 1 to mana value
+        return mana_value
+
+    def get_mana_requirements(self) -> Dict[str, int]:
+        """
+        Parses the mana cost and returns a dictionary of mana requirements by color.
+        """
+        mana_symbols = re.findall(r'\{(.*?)\}', self.mana_cost)
+        mana_requirements: Dict[str, int] = {}
+        for symbol in mana_symbols:
+            if symbol.isdigit():
+                mana_requirements['Colorless'] = mana_requirements.get('Colorless', 0) + int(symbol)
+            else:
+                mana_requirements[symbol] = mana_requirements.get(symbol, 0) + 1
+        return mana_requirements
+
+    def tap(self) -> None:
+        """
+        Taps the card.
+        """
+        if not self.tapped:
+            self.tapped = True
+            logger.info(f"{self.name} has been tapped.")
+        else:
+            logger.warning(f"{self.name} is already tapped.")
+
+    def untap(self) -> None:
+        """
+        Untaps the card.
+        """
+        if self.tapped:
+            self.tapped = False
+            logger.info(f"{self.name} has been untapped.")
+
+    def is_playable(self, mana_pool: Dict[str, int]) -> bool:
+        """
+        Determines if the card can be played with the available mana.
+        """
+        mana_requirements = self.get_mana_requirements()
+        temp_pool = mana_pool.copy()
+        # First, pay colored mana costs
+        for color in ['W', 'U', 'B', 'R', 'G']:
+            required = mana_requirements.get(color, 0)
+            available = temp_pool.get(color, 0)
+            if available < required:
+                return False
+            temp_pool[color] -= required
+            mana_requirements[color] = 0
+
+        # Pay colorless mana costs with any available mana
+        colorless_required = mana_requirements.get('Colorless', 0)
+        total_available_mana = sum(temp_pool.values())
+        if total_available_mana < colorless_required:
+            return False
+
+        return True
+
+    def is_creature(self) -> bool:
+        """
+        Checks if the card is a creature.
+        """
+        return 'Creature' in self.card_type
+
+    def is_land(self) -> bool:
+        """
+        Checks if the card is a land.
+        """
+        return 'Land' in self.card_type
+
+    def has_keyword(self, keyword: str) -> bool:
+        """
+        Checks if the card has a specific keyword.
+        """
+        return keyword in self.keywords
+
+
+class Deck:
+    """
+    Represents a deck of cards.
+    """
+    def __init__(self, cards: List[Card]):
+        if len(cards) < 60:
+            raise ValueError("Deck must contain at least 60 cards.")
+        self.cards = cards
+        self.shuffle()
+
+    def shuffle(self) -> None:
+        """
+        Shuffles the deck.
+        """
+        random.shuffle(self.cards)
+        logger.info("Deck has been shuffled.")
+
+    def draw(self) -> Optional[Card]:
+        """
+        Draws a card from the top of the deck.
+        """
+        if self.cards:
+            card = self.cards.pop()
+            logger.info(f"Drew card: {card.name}")
+            return card
+        else:
+            logger.warning("Attempted to draw from an empty deck.")
+            return None
+
+    def is_empty(self) -> bool:
+        """
+        Checks if the deck is empty.
+        """
+        return len(self.cards) == 0
+
+
+class Player:
+    """
+    Represents a player in the game.
+    """
+    def __init__(self, name: str, deck: Deck):
+        self.name = name
+        self.deck = deck
+        self.hand: List[Card] = []
+        self.battlefield: List[Card] = []
+        self.graveyard: List[Card] = []
+        self.exile_pile: List[Card] = []
+        self.mana_pool: Dict[str, int] = {'W': 0, 'U': 0, 'B': 0, 'R': 0, 'G': 0}
+        self.lands_played_this_turn = 0
+        self.health = 20
+        self.max_hand_size = 7
+
+    def draw_card(self) -> None:
+        """
+        Player draws a card from their deck.
+        """
+        card = self.deck.draw()
+        if card:
+            self.hand.append(card)
+            logger.info(f"{self.name} drew a card: {card}")
+        else:
+            logger.error(f"{self.name} cannot draw a card. Deck is empty.")
+            self.lose_game()
+
+    def play_card(self, card_index: int) -> bool:
+        """
+        Plays a card from the player's hand onto the battlefield.
+        """
+        try:
+            card = self.hand[card_index]
+            if card.is_land():
+                if self.lands_played_this_turn >= 1:
+                    logger.warning(f"{self.name} cannot play more than one land per turn.")
+                    return False
+                else:
+                    self.lands_played_this_turn += 1
+                    self.hand.pop(card_index)
+                    self.battlefield.append(card)
+                    card.owner = self
+                    logger.info(f"{self.name} played land: {card}")
+                    return True
+            elif self.is_playable(card):
+                self.spend_mana(card)
+                self.hand.pop(card_index)
+                self.battlefield.append(card)
+                card.owner = self
+                logger.info(f"{self.name} played {card}")
+                return True
+            else:
+                logger.warning(f"{self.name} does not have enough mana to play {card}.")
+                return False
+        except IndexError:
+            logger.error(f"{self.name} tried to play a card with invalid index: {card_index}")
+            return False
+
+    def is_playable(self, card: Card) -> bool:
+        """
+        Determines if the player can play the given card with their current mana pool.
+        """
+        return card.is_playable(self.mana_pool)
+
+    def spend_mana(self, card: Card) -> None:
+        """
+        Spends the required mana to play the card.
+        """
+        mana_requirements = card.get_mana_requirements()
+        # First, pay colored mana costs
+        for color in ['W', 'U', 'B', 'R', 'G']:
+            required = mana_requirements.get(color, 0)
+            if required > 0:
+                self.mana_pool[color] -= required
+
+        # Pay colorless mana costs with any available mana
+        colorless_required = mana_requirements.get('Colorless', 0)
+        while colorless_required > 0:
+            for color in ['W', 'U', 'B', 'R', 'G']:
+                if self.mana_pool[color] > 0:
+                    self.mana_pool[color] -= 1
+                    colorless_required -= 1
+                    if colorless_required == 0:
+                        break
+
+    def add_mana(self) -> None:
+        """
+        Adds mana to the player's mana pool by tapping lands.
+        """
+        for card in self.battlefield:
+            if card.is_land() and not card.tapped:
+                card.tap()
+                # Assuming basic lands produce one mana of their color
+                land_type = card.name
+                if 'Plains' in land_type or 'Plains' in card.card_type:
+                    self.mana_pool['W'] += 1
+                elif 'Island' in land_type or 'Island' in card.card_type:
+                    self.mana_pool['U'] += 1
+                elif 'Swamp' in land_type or 'Swamp' in card.card_type:
+                    self.mana_pool['B'] += 1
+                elif 'Mountain' in land_type or 'Mountain' in card.card_type:
+                    self.mana_pool['R'] += 1
+                elif 'Forest' in land_type or 'Forest' in card.card_type:
+                    self.mana_pool['G'] += 1
+                else:
+                    # Handle dual lands or other types
+                    # For simplicity, we'll assume they add one colorless mana
+                    self.mana_pool['Colorless'] = self.mana_pool.get('Colorless', 0) + 1
+                logger.info(f"{self.name} tapped {card.name} for mana.")
+
+    def untap_all(self) -> None:
+        """
+        Untaps all tapped cards on the battlefield.
+        """
+        for card in self.battlefield:
+            card.untap()
+        logger.info(f"{self.name} untapped all cards on the battlefield.")
+        self.lands_played_this_turn = 0
+        # Reset mana pool at the beginning of the turn
+        self.mana_pool = {'W': 0, 'U': 0, 'B': 0, 'R': 0, 'G': 0}
+
+    def lose_game(self) -> None:
+        """
+        Sets the player's health to zero, indicating they've lost the game.
+        """
+        self.health = 0
+        logger.info(f"{self.name} has lost the game.")
+
+    def has_lost(self) -> bool:
+        """
+        Checks if the player has lost the game.
+        """
+        return self.health <= 0
+
+    def declare_attackers(self) -> List[Card]:
+        """
+        Selects creatures to attack with.
+        """
+        attackers = [card for card in self.battlefield if card.is_creature() and not card.tapped]
+        return attackers
+
+    def declare_blockers(self, attackers: List[Card]) -> Dict[Card, Optional[Card]]:
+        """
+        Declares blockers for the incoming attackers.
+        """
+        blockers: Dict[Card, Optional[Card]] = {}
+        available_blockers = [card for card in self.battlefield if card.is_creature() and not card.tapped]
+        for attacker in attackers:
+            blocker = None
+            if available_blockers:
+                blocker = available_blockers.pop(0)
+                blocker.tap()
+                logger.info(f"{self.name} blocks {attacker.name} with {blocker.name}.")
+            blockers[attacker] = blocker
+        return blockers
+
+    def resolve_combat(self, blockers: Dict[Card, Optional[Card]], opponent: 'Player') -> None:
+        """
+        Resolves combat damage between attackers and blockers.
+        """
+        for attacker, blocker in blockers.items():
+            attacker_power = self.get_creature_power(attacker)
+            if blocker:
+                blocker_toughness = opponent.get_creature_toughness(blocker)
+                blocker_power = opponent.get_creature_power(blocker)
+                attacker_toughness = self.get_creature_toughness(attacker)
+                # Deal damage to each other
+                logger.info(f"{attacker.name} deals {attacker_power} damage to {blocker.name}.")
+                logger.info(f"{blocker.name} deals {blocker_power} damage to {attacker.name}.")
+                if attacker_power >= blocker_toughness:
+                    opponent.move_to_graveyard(blocker)
+                    opponent.battlefield.remove(blocker)
+                    logger.info(f"{blocker.name} is destroyed and moved to the graveyard.")
+                if blocker_power >= attacker_toughness:
+                    self.move_to_graveyard(attacker)
+                    self.battlefield.remove(attacker)
+                    logger.info(f"{attacker.name} is destroyed and moved to the graveyard.")
+            else:
+                # Unblocked attacker deals damage to opponent
+                opponent.receive_damage(attacker_power)
+                logger.info(f"{attacker.name} deals {attacker_power} damage to {opponent.name}.")
+
+    def get_creature_power(self, creature: Card) -> int:
+        """
+        Returns the creature's power as an integer.
+        """
+        try:
+            return int(creature.power)
+        except (ValueError, TypeError):
+            return 0  # Assign 0 if power is non-numeric
+
+    def get_creature_toughness(self, creature: Card) -> int:
+        """
+        Returns the creature's toughness as an integer.
+        """
+        try:
+            return int(creature.toughness)
+        except (ValueError, TypeError):
+            return 0  # Assign 0 if toughness is non-numeric
+
+    def move_to_graveyard(self, card: Card) -> None:
+        """
+        Moves a card to the graveyard.
+        """
+        self.graveyard.append(card)
+        logger.info(f"{card.name} has been moved to the graveyard.")
+
+    def receive_damage(self, amount: int) -> None:
+        """
+        Reduces the player's health by the specified damage amount.
+        """
+        self.health -= amount
+        logger.info(f"{self.name} received {amount} damage and is now at {self.health} health.")
+        if self.health <= 0:
+            logger.info(f"{self.name} has lost the game.")
+
+    def discard_down_to_max_hand_size(self) -> None:
+        """
+        Discards cards down to the maximum hand size at the end of the turn.
+        """
+        while len(self.hand) > self.max_hand_size:
+            discarded_card = self.hand.pop()
+            self.move_to_graveyard(discarded_card)
+            logger.info(f"{self.name} discards {discarded_card.name} to meet the maximum hand size.")
+
+    def __str__(self) -> str:
+        return f"Player {self.name}: {self.health} HP, Mana Pool: {self.mana_pool}"
+
+
+class AIPlayer(Player):
+    """
+    Represents an AI-controlled player.
+    """
+    def take_turn(self) -> None:
+        """
+        AI takes its turn by following a basic strategy.
+        """
+        # Main phase actions are handled in GameEngine
+        pass
+
+    def declare_attackers(self) -> List[Card]:
+        """
+        AI decides which creatures to attack with.
+        """
+        attackers = [card for card in self.battlefield if card.is_creature() and not card.tapped]
+        return attackers
+
+    def declare_blockers(self, attackers: List[Card]) -> Dict[Card, Optional[Card]]:
+        blockers: Dict[Card, Optional[Card]] = {}
+        available_blockers = [card for card in self.battlefield if card.is_creature() and not card.tapped]
+        # Block if possible
+        for attacker in attackers:
+            if available_blockers:
+                blocker = available_blockers.pop(0)
+                blocker.tap()
+                logger.info(f"{self.name} blocks {attacker.name} with {blocker.name}.")
+                blockers[attacker] = blocker
+            else:
+                blockers[attacker] = None
+        return blockers
+
+
+# Rules Engine using Finite State Machine
+class RulesEngine:
+    """
+    Manages the phases of the game using a finite state machine.
+    """
+    def __init__(self):
+        self.states = [
+            "Untap", "Upkeep", "Draw", "Main1", "BeginCombat", "DeclareAttackers",
+            "DeclareBlockers", "CombatDamage", "EndCombat", "Main2", "End", "Cleanup"
+        ]
+        self.machine = Machine(model=self, states=self.states, initial="Untap")
+
+        # Define phase transitions
+        self.machine.add_transition(trigger="next_phase", source="Untap", dest="Upkeep")
+        self.machine.add_transition(trigger="next_phase", source="Upkeep", dest="Draw")
+        self.machine.add_transition(trigger="next_phase", source="Draw", dest="Main1")
+        self.machine.add_transition(trigger="next_phase", source="Main1", dest="BeginCombat")
+        self.machine.add_transition(trigger="next_phase", source="BeginCombat", dest="DeclareAttackers")
+        self.machine.add_transition(trigger="next_phase", source="DeclareAttackers", dest="DeclareBlockers")
+        self.machine.add_transition(trigger="next_phase", source="DeclareBlockers", dest="CombatDamage")
+        self.machine.add_transition(trigger="next_phase", source="CombatDamage", dest="EndCombat")
+        self.machine.add_transition(trigger="next_phase", source="EndCombat", dest="Main2")
+        self.machine.add_transition(trigger="next_phase", source="Main2", dest="End")
+        self.machine.add_transition(trigger="next_phase", source="End", dest="Cleanup")
+        self.machine.add_transition(trigger="next_phase", source="Cleanup", dest="Untap")
+
+    def is_action_allowed(self, action: str) -> bool:
+        """
+        Determines if an action is allowed in the current phase.
+        """
+        allowed_actions = {
+            "Untap": ["untap_all"],
+            "Upkeep": [],
+            "Draw": ["draw_card"],
+            "Main1": ["play_card", "add_mana"],
+            "BeginCombat": [],
+            "DeclareAttackers": ["declare_attackers"],
+            "DeclareBlockers": ["declare_blockers"],
+            "CombatDamage": ["resolve_combat"],
+            "EndCombat": [],
+            "Main2": ["play_card", "add_mana"],
+            "End": [],
+            "Cleanup": ["discard_down_to_max_hand_size"]
+        }
+        return action in allowed_actions.get(self.state, [])
+
+
+# Game Engine
+class GameEngine:
+    """
+    Manages the overall flow of the game.
+    """
+    def __init__(self, players: List[Player]):
+        if len(players) < 2:
+            raise ValueError("A minimum of two players is required to start the game.")
+        self.players = players
+        self.rules_engine = RulesEngine()
+        self.current_player_index = 0
+
+    def start_game(self) -> None:
+        """
+        Starts the game and manages the turn order.
+        """
+        logger.info("Starting the game...")
+        # Each player draws an initial hand of 7 cards
+        for player in self.players:
+            for _ in range(7):
+                player.draw_card()
+            logger.info(f"{player.name} has drawn their initial hand.")
+
+        # Main game loop
+        while not self.is_game_over():
+            self.take_turn()
+            # Advance to the next player
+            self.current_player_index = (self.current_player_index + 1) % len(self.players)
+        # Announce the winner
+        self.declare_winner()
+
+    def take_turn(self) -> None:
+        """
+        Executes a single turn for the current player.
+        """
+        current_player = self.players[self.current_player_index]
+        opponent = self.players[(self.current_player_index + 1) % len(self.players)]
+        logger.info(f"\n=== Starting turn for {current_player.name} ===")
+        logger.info(f"{current_player.name} - Health: {current_player.health}, Mana Pool: {current_player.mana_pool}")
+        logger.info(f"Hand: {[card.name for card in current_player.hand]}")
+        logger.info(f"Battlefield: {[card.name for card in current_player.battlefield]}")
+        logger.info(f"{opponent.name} - Health: {opponent.health}, Mana Pool: {opponent.mana_pool}")
+        logger.info(f"Opponent Battlefield: {[card.name for card in opponent.battlefield]}")
+
+        # Reset the phase to Untap at the beginning of each turn
+        self.rules_engine.to_Untap()
+
+        # Go through all phases
+        while True:
+            phase = self.rules_engine.state
+            logger.info(f"Phase: {phase}")
+            self.execute_phase_actions(current_player)
+            if self.is_game_over():
+                break
+            if phase == "Cleanup":
+                break  # End of turn
+            self.rules_engine.next_phase()
+
+        logger.info(f"=== Ending turn for {current_player.name} ===")
+
+    def execute_phase_actions(self, player: Player) -> None:
+        """
+        Executes actions allowed in the current phase for the player.
+        """
+        phase = self.rules_engine.state
+        opponent = self.players[(self.current_player_index + 1) % len(self.players)]
+
+        if phase == "Untap" and self.rules_engine.is_action_allowed("untap_all"):
+            player.untap_all()
+        elif phase == "Draw" and self.rules_engine.is_action_allowed("draw_card"):
+            player.draw_card()
+        elif phase == "Main1" or phase == "Main2":
+            # Play lands if possible
+            if player.lands_played_this_turn < 1:
+                land_in_hand_index = next((i for i, card in enumerate(player.hand) if card.is_land()), None)
+                if land_in_hand_index is not None:
+                    player.play_card(land_in_hand_index)
+            # Add mana by tapping lands
+            if self.rules_engine.is_action_allowed("add_mana"):
+                player.add_mana()
+            # Play other cards
+            playable_cards_indices = [i for i, card in enumerate(player.hand) if player.is_playable(card)]
+            while playable_cards_indices:
+                player.play_card(playable_cards_indices[0])
+                # Update playable cards after each play
+                playable_cards_indices = [i for i, card in enumerate(player.hand) if player.is_playable(card)]
+        elif phase == "DeclareAttackers" and self.rules_engine.is_action_allowed("declare_attackers"):
+            self.attackers = player.declare_attackers()
+            for attacker in self.attackers:
+                attacker.tap()
+                logger.info(f"{player.name} declares {attacker.name} as an attacker.")
+        elif phase == "DeclareBlockers" and self.rules_engine.is_action_allowed("declare_blockers"):
+            self.blockers = opponent.declare_blockers(self.attackers)
+        elif phase == "CombatDamage" and self.rules_engine.is_action_allowed("resolve_combat"):
+            player.resolve_combat(self.blockers, opponent)
+        elif phase == "Cleanup" and self.rules_engine.is_action_allowed("discard_down_to_max_hand_size"):
+            player.discard_down_to_max_hand_size()
+
+    def is_game_over(self) -> bool:
+        """
+        Checks if the game is over.
+        """
+        active_players = [player for player in self.players if not player.has_lost()]
+        return len(active_players) <= 1
+
+    def declare_winner(self) -> None:
+        """
+        Announces the winner of the game.
+        """
+        winners = [player for player in self.players if not player.has_lost()]
+        if winners:
+            winner = winners[0]
+            logger.info(f"{winner.name} has won the game!")
+        else:
+            logger.info("The game ended in a draw.")
+
+
+# Load cards from JSON file
+def load_cards_from_json(json_path: str, image_dir: str) -> List[Card]:
+    """
+    Loads cards from a JSON file and returns a list of Card instances.
+    """
+    try:
+        with open(json_path, 'r', encoding='utf-8') as file:
+            data = json.load(file)
+
+        # Check if data is a dictionary or a list
+        if isinstance(data, dict):
+            cards_data = data.get('cards', [])
+        elif isinstance(data, list):
+            cards_data = data
+        else:
+            logger.error("Unexpected JSON format. Expected a list or dictionary.")
+            return []
+
+        cards = []
+        for card_data in cards_data:
+            try:
+                card = Card.from_json(card_data, image_dir)
+                cards.append(card)
+            except Exception as e:
+                logger.warning(f"Skipping card due to error: {e}")
+
+        if not cards:
+            logger.error("No valid cards were loaded from the JSON file.")
+        else:
+            logger.info(f"Loaded {len(cards)} cards from JSON.")
+        return cards
+    except FileNotFoundError:
+        logger.error(f"JSON file not found: {json_path}")
+        return []
+    except json.JSONDecodeError as e:
+        logger.error(f"Error decoding JSON: {e}")
+        return []
+    except Exception as e:
+        logger.error(f"Unexpected error loading cards: {e}")
+        return []
+
+
+if __name__ == "__main__":
+    # Load cards from JSON
+    json_path = r"C:/Users/swank/Downloads/MtG Database.db"
+    image_dir = r"C:/Users/swank/mtg-python-engine/parser/data/images"
+
+cards = load_cards_from_json(json_path, image_dir)
+
+# Create decks
+if cards and len(cards) >= 120:
+    deck1_cards = random.sample(cards, 60)
+    deck2_cards = random.sample(cards, 60)
+
+    # Create decks
+    deck1 = Deck(cards=deck1_cards)
+    deck2 = Deck(cards=deck2_cards)
+
+    # Create players
+    player1 = Player(name="Alice", deck=deck1)
+    player2 = AIPlayer(name="Bot", deck=deck2)
+
+    # Start game
+    game = GameEngine(players=[player1, player2])
+    game.start_game()
+else:
+    logger.error("Insufficient cards available to start the game.")
